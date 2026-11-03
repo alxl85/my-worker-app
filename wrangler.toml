@@ -5,4 +5,4 @@ compatibility_date = "2026-01-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "app-database"
-database_id = "YOUR_DATABASE_ID"
+database_id = "a086a1ea-bdfd-4bb1-a8a3-35b810cc34ac"
