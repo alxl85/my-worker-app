@@ -3,6 +3,15 @@ main = "src/main.py"
 compatibility_date = "2026-01-01"
 compatibility_flags = ["python_workers"]
 
+# Static PWA files (manifest, service worker, icons) are served from ./public
+[assets]
+directory = "./public"
+
+# "true" = anyone can pick a user from a dropdown (testing only).
+# "false" = identity comes ONLY from Cloudflare Access. Set to "false" before real use.
+[vars]
+DEMO_MODE = "true"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "app-database"
