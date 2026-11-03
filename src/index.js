@@ -44,8 +44,13 @@ app.get('/', (c) => {
             const json = await res.json();
             const container = document.getElementById('shiftsList');
             
+            if (!json.success) {
+              container.innerHTML = '<p style="color: red;">API Error: ' + (json.error || 'Unknown error') + '</p>';
+              return;
+            }
+
             if (!json.data || json.data.length === 0) {
-              container.innerHTML = '<p>No open shift requests.</p>';
+              container.innerHTML = '<p>No open shift requests found in database.</p>';
               return;
             }
 
@@ -71,7 +76,7 @@ app.get('/', (c) => {
             }
             container.innerHTML = html;
           } catch(e) {
-            document.getElementById('shiftsList').innerHTML = '<p>Error loading shifts.</p>';
+            document.getElementById('shiftsList').innerHTML = '<p style="color: red;">Fetch Exception: ' + e.message + '</p>';
           }
         }
 
@@ -81,7 +86,7 @@ app.get('/', (c) => {
             const json = await res.json();
             const container = document.getElementById('auditReport');
             
-            if (!json.data || json.data.length === 0) {
+            if (!json.success || !json.data || json.data.length === 0) {
               container.innerHTML = '<p>No audit records found.</p>';
               return;
             }
@@ -132,29 +137,45 @@ app.get('/', (c) => {
 });
 
 app.get('/api/requests', async (c) => {
-  const query = "SELECT sr.id, sr.status, s.shift_date, s.start_time, s.end_time, u1.name as requester_name, u2.name as claiming_name FROM shift_requests sr JOIN shifts s ON sr.original_shift_id = s.id JOIN users u1 ON sr.requester_id = u1.id LEFT JOIN users u2 ON sr.claiming_user_id = u2.id ORDER BY sr.id DESC";
-  const { results } = await c.env.DB.prepare(query).all();
-  return c.json({ success: true, data: results });
+  try {
+    const query = "SELECT sr.id, sr.status, s.shift_date, s.start_time, s.end_time, u1.name as requester_name, u2.name as claiming_name FROM shift_requests sr JOIN shifts s ON sr.original_shift_id = s.id JOIN users u1 ON sr.requester_id = u1.id LEFT JOIN users u2 ON sr.claiming_user_id = u2.id ORDER BY sr.id DESC";
+    const { results } = await c.env.DB.prepare(query).all();
+    return c.json({ success: true, data: results });
+  } catch (e) {
+    return c.json({ success: false, error: e.message }, 500);
+  }
 });
 
 app.post('/api/claim', async (c) => {
-  const { requestId, claimingUserId } = await c.req.json();
-  await c.env.DB.prepare("UPDATE shift_requests SET claiming_user_id = ?, status = 'claimed', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'open'").bind(claimingUserId, requestId).run();
-  await c.env.DB.prepare("INSERT INTO shift_audit_logs (request_id, action_by, action_taken, log_notes) VALUES (?, ?, 'CLAIMED', 'Employee claimed shift')").bind(requestId, claimingUserId).run();
-  return c.json({ success: true });
+  try {
+    const { requestId, claimingUserId } = await c.req.json();
+    await c.env.DB.prepare("UPDATE shift_requests SET claiming_user_id = ?, status = 'claimed', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'open'").bind(claimingUserId, requestId).run();
+    await c.env.DB.prepare("INSERT INTO shift_audit_logs (request_id, action_by, action_taken, log_notes) VALUES (?, ?, 'CLAIMED', 'Employee claimed shift')").bind(requestId, claimingUserId).run();
+    return c.json({ success: true });
+  } catch (e) {
+    return c.json({ success: false, error: e.message }, 500);
+  }
 });
 
 app.post('/api/approve', async (c) => {
-  const { requestId, managerId, status } = await c.req.json();
-  await c.env.DB.prepare("UPDATE shift_requests SET manager_id = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(managerId, status.toLowerCase(), requestId).run();
-  await c.env.DB.prepare("INSERT INTO shift_audit_logs (request_id, action_by, action_taken, log_notes) VALUES (?, ?, ?, 'Manager decision')").bind(requestId, managerId, status).run();
-  return c.json({ success: true });
+  try {
+    const { requestId, managerId, status } = await c.req.json();
+    await c.env.DB.prepare("UPDATE shift_requests SET manager_id = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(managerId, status.toLowerCase(), requestId).run();
+    await c.env.DB.prepare("INSERT INTO shift_audit_logs (request_id, action_by, action_taken, log_notes) VALUES (?, ?, ?, 'Manager decision')").bind(requestId, managerId, status).run();
+    return c.json({ success: true });
+  } catch (e) {
+    return c.json({ success: false, error: e.message }, 500);
+  }
 });
 
 app.get('/api/audit-logs', async (c) => {
-  const query = "SELECT l.id, l.request_id, l.action_taken, l.timestamp, u.name as actor_name FROM shift_audit_logs l JOIN users u ON l.action_by = u.id ORDER BY l.timestamp DESC LIMIT 100";
-  const { results } = await c.env.DB.prepare(query).all();
-  return c.json({ success: true, data: results });
+  try {
+    const query = "SELECT l.id, l.request_id, l.action_taken, l.timestamp, u.name as actor_name FROM shift_audit_logs l JOIN users u ON l.action_by = u.id ORDER BY l.timestamp DESC LIMIT 100";
+    const { results } = await c.env.DB.prepare(query).all();
+    return c.json({ success: true, data: results });
+  } catch (e) {
+    return c.json({ success: false, error: e.message }, 500);
+  }
 });
 
 export default app;
