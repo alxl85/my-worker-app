@@ -22,6 +22,7 @@ app.get('/', (c) => {
         .badge-open { background: #fef3c7; color: #92400e; }
         .badge-claimed { background: #dbeafe; color: #1e40af; }
         .badge-approved { background: #d1fae5; color: #065f46; }
+        .badge-rejected { background: #fee2e2; color: #991b1b; }
       </style>
     </head>
     <body>
@@ -48,21 +49,27 @@ app.get('/', (c) => {
             return;
           }
 
-          container.innerHTML = json.data.map(req => `
-            <div style="border-bottom: 1px solid #eee; padding-bottom: 8px; margin-bottom: 8px;">
-              <div><strong>Shift Date:</strong> \${req.shift_date} (\${req.start_time} - \${req.end_time})</div>
-              <div><strong>Requested By:</strong> \${req.requester_name}</div>
-              <div><strong>Status:</strong> <span class="badge badge-\${req.status}">\${req.status.toUpperCase()}</span></div>
-              \${req.claiming_name ? \`<div><strong>Claimed By:</strong> \${req.claiming_name}</div>\` : ''}
-              <div style="margin-top: 8px;">
-                \${req.status === 'open' ? \`<button class="btn btn-primary" onclick="claimShift(\${req.id})">Claim Shift</button>\` : ''}
-                \${req.status === 'claimed' ? \`
-                  <button class="btn btn-success" onclick="approveShift(\${req.id}, 'APPROVED')">Manager Approve</button>
-                  <button class="btn btn-danger" onclick="approveShift(\${req.id}, 'REJECTED')">Reject</button>
-                \` : ''}
-              </div>
-            </div>
-          `).join('');
+          let html = '';
+          for (let req of json.data) {
+            let claimingHtml = req.claiming_name ? '<div><strong>Claimed By:</strong> ' + req.claiming_name + '</div>' : '';
+            let actionHtml = '';
+            
+            if (req.status === 'open') {
+              actionHtml = '<button class="btn btn-primary" onclick="claimShift(' + req.id + ')">Claim Shift</button>';
+            } else if (req.status === 'claimed') {
+              actionHtml = '<button class="btn btn-success" onclick="approveShift(' + req.id + ', \'APPROVED\')">Manager Approve</button>' +
+                           '<button class="btn btn-danger" onclick="approveShift(' + req.id + ', \'REJECTED\')">Reject</button>';
+            }
+
+            html += '<div style="border-bottom: 1px solid #eee; padding-bottom: 8px; margin-bottom: 8px;">' +
+                    '<div><strong>Shift Date:</strong> ' + req.shift_date + ' (' + req.start_time + ' - ' + req.end_time + ')</div>' +
+                    '<div><strong>Requested By:</strong> ' + req.requester_name + '</div>' +
+                    '<div><strong>Status:</strong> <span class="badge badge-' + req.status + '">' + req.status.toUpperCase() + '</span></div>' +
+                    claimingHtml +
+                    '<div style="margin-top: 8px;">' + actionHtml + '</div>' +
+                    '</div>';
+          }
+          container.innerHTML = html;
         }
 
         async function loadAuditLogs() {
@@ -75,12 +82,12 @@ app.get('/', (c) => {
             return;
           }
 
-          container.innerHTML = '<ul>' + json.data.map(log => `
-            <li>
-              <strong>\${log.action_taken}</strong> by \${log.actor_name} on Request #\${log.request_id}
-              <br><small>\${new Date(log.timestamp).toLocaleString()}</small>
-            </li>
-          `).join('') + '</ul>';
+          let html = '<ul>';
+          for (let log of json.data) {
+            html += '<li><strong>' + log.action_taken + '</strong> by ' + log.actor_name + ' on Request #' + log.request_id + '<br><small>' + new Date(log.timestamp).toLocaleString() + '</small></li>';
+          }
+          html += '</ul>';
+          container.innerHTML = html;
         }
 
         async function claimShift(requestId) {
@@ -119,7 +126,7 @@ app.get('/', (c) => {
 
 // API: Fetch open and claimed shift requests
 app.get('/api/requests', async (c) => {
-  const query = `
+  const query = \`
     SELECT sr.id, sr.status, s.shift_date, s.start_time, s.end_time,
            u1.name as requester_name, u2.name as claiming_name
     FROM shift_requests sr
@@ -127,7 +134,7 @@ app.get('/api/requests', async (c) => {
     JOIN users u1 ON sr.requester_id = u1.id
     LEFT JOIN users u2 ON sr.claiming_user_id = u2.id
     ORDER BY sr.id DESC
-  `;
+  \`;
   const { results } = await c.env.DB.prepare(query).all();
   return c.json({ success: true, data: results });
 });
@@ -136,18 +143,16 @@ app.get('/api/requests', async (c) => {
 app.post('/api/claim', async (c) => {
   const { requestId, claimingUserId } = await c.req.json();
 
-  // Update shift request status to claimed
-  await c.env.DB.prepare(`
+  await c.env.DB.prepare(\`
     UPDATE shift_requests 
     SET claiming_user_id = ?, status = 'claimed', updated_at = CURRENT_TIMESTAMP
     WHERE id = ? AND status = 'open'
-  `).bind(claimingUserId, requestId).run();
+  \`).bind(claimingUserId, requestId).run();
 
-  // Audit log entry
-  await c.env.DB.prepare(`
+  await c.env.DB.prepare(\`
     INSERT INTO shift_audit_logs (request_id, action_by, action_taken, log_notes)
     VALUES (?, ?, 'CLAIMED', 'Employee offered/claimed open shift')
-  `).bind(requestId, claimingUserId).run();
+  \`).bind(requestId, claimingUserId).run();
 
   return c.json({ success: true });
 });
@@ -156,31 +161,29 @@ app.post('/api/claim', async (c) => {
 app.post('/api/approve', async (c) => {
   const { requestId, managerId, status } = await c.req.json();
 
-  // Update status to approved or rejected
-  await c.env.DB.prepare(`
+  await c.env.DB.prepare(\`
     UPDATE shift_requests 
     SET manager_id = ?, status = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).bind(managerId, status.toLowerCase(), requestId).run();
+  \`).bind(managerId, status.toLowerCase(), requestId).run();
 
-  // Log decision to audit table
-  await c.env.DB.prepare(`
+  await c.env.DB.prepare(\`
     INSERT INTO shift_audit_logs (request_id, action_by, action_taken, log_notes)
     VALUES (?, ?, ?, 'Manager decision finalized')
-  `).bind(requestId, managerId, status).run();
+  \`).bind(requestId, managerId, status).run();
 
   return c.json({ success: true });
 });
 
 // API: Manager Audit Report endpoint
 app.get('/api/audit-logs', async (c) => {
-  const query = `
+  const query = \`
     SELECT l.id, l.request_id, l.action_taken, l.timestamp, u.name as actor_name
     FROM shift_audit_logs l
     JOIN users u ON l.action_by = u.id
     ORDER BY l.timestamp DESC
     LIMIT 100
-  `;
+  \`;
   const { results } = await c.env.DB.prepare(query).all();
   return c.json({ success: true, data: results });
 });
