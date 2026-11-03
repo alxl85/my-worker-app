@@ -11,125 +11,59 @@ app.get('/', (c) => {
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>Shift Exchange Portal</title>
       <style>
-        body { font-family: -apple-system, system-ui, sans-serif; margin: 0; padding: 15px; background: #f4f6f8; color: #333; }
-        .card { background: white; padding: 15px; border-radius: 8px; margin-bottom: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-        .btn { border: none; padding: 10px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; margin-right: 5px; }
-        .btn-primary { background: #0070f3; color: white; }
-        .btn-success { background: #10b981; color: white; }
-        .btn-danger { background: #ef4444; color: white; }
-        .badge { display: inline-block; padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; background: #e5e7eb; }
-        .badge-open { background: #fef3c7; color: #92400e; }
-        .badge-claimed { background: #dbeafe; color: #1e40af; }
-        .badge-approved { background: #d1fae5; color: #065f46; }
-        .badge-rejected { background: #fee2e2; color: #991b1b; }
+        body { font-family: sans-serif; padding: 20px; background: #f4f6f8; }
+        .card { background: white; padding: 15px; border-radius: 8px; margin-bottom: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        button { padding: 8px 12px; background: #0070f3; color: white; border: none; border-radius: 4px; cursor: pointer; }
       </style>
     </head>
     <body>
       <h2>Shift Exchange Portal</h2>
-      
       <div class="card">
-        <h3>Available & Requested Shifts</h3>
-        <div id="shiftsList">Loading shifts...</div>
-      </div>
-
-      <div class="card">
-        <h3>Manager Audit Report</h3>
-        <div id="auditReport">Loading logs...</div>
+        <h3>Shifts</h3>
+        <div id="content">Loading from API...</div>
       </div>
 
       <script>
-        async function loadShifts() {
+        async function init() {
           try {
             const res = await fetch('/api/requests');
             const json = await res.json();
-            const container = document.getElementById('shiftsList');
             
-            if (!json.success) {
-              container.innerHTML = '<p style="color: red;">API Error: ' + (json.error || 'Unknown error') + '</p>';
-              return;
-            }
-
-            if (!json.data || json.data.length === 0) {
-              container.innerHTML = '<p>No open shift requests found in database.</p>';
+            if (!json.success || !json.data || json.data.length === 0) {
+              document.getElementById('content').innerHTML = '<p>No shifts found in database.</p>';
               return;
             }
 
             let html = '';
-            for (let req of json.data) {
-              let claimingHtml = req.claiming_name ? '<div><strong>Claimed By:</strong> ' + req.claiming_name + '</div>' : '';
-              let actionHtml = '';
-              
-              if (req.status === 'open') {
-                actionHtml = '<button class="btn btn-primary" onclick="claimShift(' + req.id + ')">Claim Shift</button>';
-              } else if (req.status === 'claimed') {
-                actionHtml = '<button class="btn btn-success" onclick="approveShift(' + req.id + ', \'APPROVED\')">Manager Approve</button>' +
-                             '<button class="btn btn-danger" onclick="approveShift(' + req.id + ', \'REJECTED\')">Reject</button>';
-              }
-
-              html += '<div style="border-bottom: 1px solid #eee; padding-bottom: 8px; margin-bottom: 8px;">' +
-                      '<div><strong>Shift Date:</strong> ' + req.shift_date + ' (' + req.start_time + ' - ' + req.end_time + ')</div>' +
-                      '<div><strong>Requested By:</strong> ' + req.requester_name + '</div>' +
-                      '<div><strong>Status:</strong> <span class="badge badge-' + req.status + '">' + req.status.toUpperCase() + '</span></div>' +
-                      claimingHtml +
-                      '<div style="margin-top: 8px;">' + actionHtml + '</div>' +
-                      '</div>';
-            }
-            container.innerHTML = html;
-          } catch(e) {
-            document.getElementById('shiftsList').innerHTML = '<p style="color: red;">Fetch Exception: ' + e.message + '</p>';
+            json.data.forEach(req => {
+              html += \`
+                <div style="border-bottom: 1px solid #ddd; padding: 8px 0;">
+                  <strong>Date:</strong> \$_esc(req.shift_date) (\$_esc(req.start_time))<br>
+                  <strong>Requester:</strong> \$_esc(req.requester_name)<br>
+                  <strong>Status:</strong> \$_esc(req.status)<br>
+                  <button onclick="claim(\${req.id})">Claim Shift</button>
+                </div>
+              \`.replace(/\\$_esc\\(/g, ''); // simple template cleanup
+            });
+            document.getElementById('content').innerHTML = html;
+          } catch (err) {
+            document.getElementById('content').innerHTML = '<p style="color:red;">Error: ' + err.message + '</p>';
           }
         }
 
-        async function loadAuditLogs() {
-          try {
-            const res = await fetch('/api/audit-logs');
-            const json = await res.json();
-            const container = document.getElementById('auditReport');
-            
-            if (!json.success || !json.data || json.data.length === 0) {
-              container.innerHTML = '<p>No audit records found.</p>';
-              return;
-            }
-
-            let html = '<ul>';
-            for (let log of json.data) {
-              html += '<li><strong>' + log.action_taken + '</strong> by ' + log.actor_name + ' on Request #' + log.request_id + '<br><small>' + new Date(log.timestamp).toLocaleString() + '</small></li>';
-            }
-            html += '</ul>';
-            container.innerHTML = html;
-          } catch(e) {
-            document.getElementById('auditReport').innerHTML = '<p>Error loading logs.</p>';
-          }
-        }
-
-        async function claimShift(requestId) {
-          const userId = prompt("Enter your User ID to claim this shift (Try 2 or 3):");
-          if (!userId) return;
-
+        async function claim(id) {
+          const uid = prompt("Enter your User ID (e.g. 2 or 3):");
+          if (!uid) return;
           await fetch('/api/claim', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ requestId, claimingUserId: parseInt(userId) })
+            body: JSON.stringify({ requestId: id, claimingUserId: parseInt(uid) })
           });
-          loadShifts();
-          loadAuditLogs();
+          alert('Claim submitted!');
+          init();
         }
 
-        async function approveShift(requestId, status) {
-          const managerId = prompt("Enter Manager ID to finalize decision (Try 1):");
-          if (!managerId) return;
-
-          await fetch('/api/approve', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ requestId, managerId: parseInt(managerId), status })
-          });
-          loadShifts();
-          loadAuditLogs();
-        }
-
-        loadShifts();
-        loadAuditLogs();
+        init();
       </script>
     </body>
     </html>
@@ -152,27 +86,6 @@ app.post('/api/claim', async (c) => {
     await c.env.DB.prepare("UPDATE shift_requests SET claiming_user_id = ?, status = 'claimed', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'open'").bind(claimingUserId, requestId).run();
     await c.env.DB.prepare("INSERT INTO shift_audit_logs (request_id, action_by, action_taken, log_notes) VALUES (?, ?, 'CLAIMED', 'Employee claimed shift')").bind(requestId, claimingUserId).run();
     return c.json({ success: true });
-  } catch (e) {
-    return c.json({ success: false, error: e.message }, 500);
-  }
-});
-
-app.post('/api/approve', async (c) => {
-  try {
-    const { requestId, managerId, status } = await c.req.json();
-    await c.env.DB.prepare("UPDATE shift_requests SET manager_id = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(managerId, status.toLowerCase(), requestId).run();
-    await c.env.DB.prepare("INSERT INTO shift_audit_logs (request_id, action_by, action_taken, log_notes) VALUES (?, ?, ?, 'Manager decision')").bind(requestId, managerId, status).run();
-    return c.json({ success: true });
-  } catch (e) {
-    return c.json({ success: false, error: e.message }, 500);
-  }
-});
-
-app.get('/api/audit-logs', async (c) => {
-  try {
-    const query = "SELECT l.id, l.request_id, l.action_taken, l.timestamp, u.name as actor_name FROM shift_audit_logs l JOIN users u ON l.action_by = u.id ORDER BY l.timestamp DESC LIMIT 100";
-    const { results } = await c.env.DB.prepare(query).all();
-    return c.json({ success: true, data: results });
   } catch (e) {
     return c.json({ success: false, error: e.message }, 500);
   }
